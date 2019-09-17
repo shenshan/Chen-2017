@@ -1,2 +1,2 @@
-# Li-2015b
-Calcium imaging pipeline for paper Li 2015
+# Chen-2017
+Data Pipeline for paper Chen, 2017
