@@ -18,7 +18,6 @@ from pynwb import NWBFile, NWBHDF5IO
 # ============================== SET CONSTANTS ==========================================
 default_nwb_output_dir = os.path.join('/data', 'NWB 2.0')
 zero_zero_time = datetime.strptime('00:00:00', '%H:%M:%S').time()  # no precise time available
-hardware_filter = 'Bandpass filtered 300-6K Hz'
 institution = 'Janelia Research Campus'
 
 
@@ -32,19 +31,24 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
 
     # -- NWB file - a NWB2.0 file for each session
     file_name = '_'.join(
-        [str(this_session['subject_id']),
+        [this_session['subject_nickname'],
          this_session['session_date'].strftime('%Y-%m-%d'),
          str(this_session['session'])])
     nwbfile = NWBFile(identifier=file_name,
+        related_publications='http://dx.doi.org/10.1016/j.neuron.2017.05.005',
+        experiment_description='Two-photon experiment recorded in {}'.format(this_session['brain_location_name']),
         session_description='Imaging session',
         session_start_time=datetime.combine(this_session['session_date'], zero_zero_time),
         file_create_date=datetime.now(tzlocal()),
         experimenter=this_session['username'],
-        institution=institution)
+        institution=institution,
+        keywords=['motor planning', 'anterior lateral cortex', 'medial motor cortex',
+                  'ALM', 'MM', 'Two-photon imaging'])
+
     # -- subject
     subj = (lab.Subject & session_key).fetch1()
     nwbfile.subject = pynwb.file.Subject(
-        subject_id=str(this_session['subject_id']),
+        subject_id=this_session['subject_nickname'],
         genotype=' x '.join((lab.Subject.GeneModification
                              & subj).fetch('gene_modification')),
         sex=subj['sex'],
@@ -61,16 +65,17 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
     scan = (imaging.Scan & session_key).fetch1()
 
     # ---- Structural Images ----------
+    images = pynwb.base.Images('images')
 
-    gcamp = pynwb.image.GrayscaleImage('GCaMP at 940nm', scan['image_gcamp'])
-    ctb = pynwb.image.RGBImage('CTB-647 IT', scan['image_ctb'])
+    if isinstance(scan['image_beads'], collections.Sequence):
+        gcamp = pynwb.image.GrayscaleImage('GCaMP at 940nm', scan['image_gcamp'])
+        images.add_image(gcamp)
+    if isinstance(scan['image_ctb'], collections.Sequence):
+        ctb = pynwb.image.RGBImage('CTB-647 IT', scan['image_ctb'])
+        images.add_image(ctb)
     if isinstance(scan['image_beads'], collections.Sequence):
         beads = pynwb.image.GrayscaleImage('Beads PT', scan['image_beads'])
         images.add_image(beads)
-
-    images = pynwb.base.Images('images')
-    images.add_image(gcamp)
-    images.add_image(ctb)
 
     nwbfile.add_acquisition(images)
 
@@ -117,7 +122,6 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
     for k, v in dict(
         roi_id='roi id',
         cell_type='PT, IT, or unknown',
-        neuropil_mask='mask of neurophil surrounding this roi',
         roi_trace='Trace on this session of this roi',
         neuropil_trace='Trace on this session of the neurophil',
         included='whether to include this roi into later analyses'
@@ -128,12 +132,9 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
     for roi in rois:
         mask = np.zeros([512, 512])
         mask[np.unravel_index(roi['roi_pixel_list']-1, mask.shape, 'F')] = 1
-        neuropil_mask = np.zeros([512, 512])
-        neuropil_mask[np.unravel_index(roi['neuropil_pixel_list']-1, mask.shape, 'F')] = 1
         pln_seg.add_roi(
             roi_id=roi['roi_idx'],
             image_mask=mask,
-            neuropil_mask=neuropil_mask,
             cell_type=roi['cell_type'],
             roi_trace=roi['roi_trace'],
             neuropil_trace=roi['roi_trace'],
