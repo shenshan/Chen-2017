@@ -172,10 +172,10 @@ def main(data_dir='/data'):
                     go_id = np.abs(frame_time-go_cue_time).argmin()
                     trial_traces += [
                         dict(**current_session, roi_idx=roi_idx, trial=tr,
-                            original_time=frame_time[go_id-70:go_id+20],
-                            aligned_time=frame_time[go_id-70:go_id+20]-go_cue_time,
-                            aligned_trace=roi_trace[go_id-70:go_id+20],
-                            dff=(roi_trace[go_id-70:go_id+20] - np.mean(roi_trace[go_id-70:go_id-64]))/np.mean(roi_trace[go_id-70:go_id-64]))]
+                            original_time=frame_time[go_id-70:go_id+45],
+                            aligned_time=frame_time[go_id-70:go_id+45]-go_cue_time,
+                            aligned_trace=roi_trace[go_id-70:go_id+45],
+                            dff=(roi_trace[go_id-70:go_id+45] - np.mean(roi_trace[go_id-70:go_id-64]))/np.mean(roi_trace[go_id-70:go_id-64]))]
 
         imaging.Scan.Roi.insert(rois, **kargs)
         imaging.TrialTrace.insert(trial_traces, **kargs)

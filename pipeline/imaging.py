@@ -1,8 +1,16 @@
 import datajoint as dj
 from . import get_schema_name
-from . import experiment
+from . import lab, experiment
 import scipy.stats as ss
 import numpy as np
+import pandas as pd
+import researchpy as rp
+import seaborn as sns
+
+import statsmodels.api as sm
+from statsmodels.formula.api import ols
+import statsmodels.stats.multicomp
+
 
 schema = dj.schema(get_schema_name('imaging'))
 
@@ -42,8 +50,8 @@ class Scan(dj.Imported):
         roi_idx:   int
         ---
         cell_type:          varchar(32)
-        roi_trace:          longblob        # average fluorescence of roi obj-timeSeriesArrayHash-value(1, 1)-valueMatrix
-        neuropil_trace:     longblob        # average fluorescence of neuopil surounding each ROI, obj-timeSeriesArrayHash-value(1, 1)-valueMatrix
+        roi_trace:          longblob        # average fluorescence of roi
+        neuropil_trace:     longblob        # average fluorescence of neuopil surounding each ROI
         roi_pixel_list:     longblob        # pixel list of this roi
         ap_position:        float           # in um, relative to bregma
         ml_position:        float           # in um, relative to bregma
@@ -68,103 +76,77 @@ class RoiAnalyses(dj.Computed):
     definition = """
     -> Scan.Roi
     ---
-    dff_m_l:        longblob    # median dff across trials, for correct left
-    dff_m_r:        longblob    # median dff across trials, for correct right
-    dff_int_l:      float       # integral dff over task period for left trials
-    dff_int_r:      float       # integral dff over task period for right trials
-    dff_diff:       float       # dff_int_r - dff_int_l
-    p_selective:    float       # p value for trial type selectivity
-    is_selective:   bool        # whether is trial type selective p < 0.05
-    selectivity:    enum('Contra', 'Ipsi', 'Non selective')  # contra or ipsi
-    p_responsive_l: float       # p value for task relevance in left trials
-    p_responsive_r: float       # p value for task relevance in right trials
-    is_responsive:  bool        # whether is responsive to left/right trials, True if either responsive to left or right
-    mean_amp:       float       # peak amplitude of mean activity
-    frame_peak:     int         # frame number for the peak activity
-    frame_rise_half:int         # frame number of the half peak activity
+    panova  :   longblob    # matrix of nFrames x 4, p values of alpha, beta, gamma and incerpt
+    alpha   :   longblob    # vector with length nFrames, coefficient of instruction
+    beta    :   longblob    # vector with length nFrames, coefficient of lick
+    gamma   :   longblob    # vector with length nFrames, coefficient of outcome
+    mu      :   longblob    # vector with length nFrames, coefficient of intercept
     """
 
     key_source = Scan()
 
     def make(self, key):
-        # selected samples
-        task_range = range(6, 90)
 
         roi_info = []
-        for roi in (Scan.Roi & key).fetch('KEY'):
+        for roi in (Scan.Roi & key & {'inc': True}).fetch('KEY'):
 
-            # calculate median dff for each trial type (dff_m)
-            dff_r, f_r = ((TrialTrace & roi) &
-                    (experiment.BehaviorTrial &
-                    'trial_instruction="right"' &
-                    'outcome="hit"')).fetch('dff', 'aligned_trace')
-            dff_l, f_l = ((TrialTrace & roi) &
-                    (experiment.BehaviorTrial &
-                    'trial_instruction="left"' &
-                    'outcome="hit"')).fetch('dff', 'aligned_trace')
-            dff_r = np.array([f for f in dff_r])
-            dff_l = np.array([f for f in dff_l])
-            f_r = np.array([f for f in f_r])
-            f_l = np.array([f for f in f_l])
+            print(roi)
 
-            dff_m_r = np.nanmedian(dff_r, axis=0)
-            dff_m_l = np.nanmedian(dff_l, axis=0)
+            # fetch trial info from the table
+            dff, instruction, outcome  = \
+                (TrialTrace * experiment.BehaviorTrial &
+                 roi & 'outcome in ("hit", "miss")').fetch(
+                     'dff','trial_instruction', 'outcome')
 
-            # calculate trial type selectivity (p_selective)
-            dff_int_l = np.mean(dff_l[:, task_range], axis=1)
-            dff_int_r = np.mean(dff_r[:, task_range], axis=1)
+            dff_dict = {i:f for i, f in enumerate(dff) if len(f)}
+            dff = np.array(list(dff_dict.values()))
 
-            _, p_selective = ss.ranksums(dff_int_r, dff_int_l)
-            dff_diff = np.nanmean(dff_int_r) - np.nanmean(dff_int_l)
-            is_selective = bool(p_selective < 0.05)
+            instruction = instruction[list(dff_dict.keys())]
+            outcome = outcome[list(dff_dict.keys())]
+            lick = np.array(['right']*len(instruction))
+            left = np.logical_or(
+                np.logical_and(np.array(instruction)=='left', np.array(outcome)=='hit'),
+                np.logical_and(np.array(instruction)=='right', np.array(outcome)=='miss'))
+            lick[left]=np.array(['left'] * sum(left))
 
-            # calculate task selectivity (p_task)
-            nbin=5
-            ntgroup=18
-            f_r = np.mean(f_r.reshape([-1, nbin, ntgroup]), axis=1)
-            f_l = np.mean(f_l.reshape([-1, nbin, ntgroup]), axis=1)
-            _, p_responsive_r = ss.mstats.kruskalwallis([f for f in f_r])
-            _, p_responsive_l = ss.mstats.kruskalwallis([f for f in f_l])
-            is_responsive = bool((p_responsive_l < 0.01) + (p_responsive_r < 0.01))
+            df = pd.DataFrame()
+            df['instruction'] = instruction
+            df['lick'] = lick
+            df['outcome'] = outcome
 
-            # identify selectivity
-            if dff_diff > 0 and is_responsive and is_selective:
-                selectivity = 'Contra'
-            elif dff_diff < 0 and is_responsive and is_selective:
-                selectivity = 'Ipsi'
-            else:
-                selectivity = 'Non selective'
+            panova = []
+            alpha = []
+            beta = []
+            gamma = []
+            mu = []
+            for t in range(np.shape(dff)[1]):
+                df['dff'] = dff[:, t]
+                model = ols('dff ~ C(instruction)+C(lick)+C(outcome)', df).fit()
+                panova.append([
+                    model.pvalues['C(instruction)[T.right]'],
+                    model.pvalues['C(lick)[T.right]'],
+                    model.pvalues['C(outcome)[T.miss]'],
+                    model.pvalues['Intercept']
+                ])
+                cl = df[df['lick']=='left'][df['instruction']=='left']['dff'].mean()
+                cr = df[df['lick']=='right'][df['instruction']=='right']['dff'].mean()
+                el = df[df['lick']=='left'][df['instruction']=='right']['dff'].mean()
+                er = df[df['lick']=='right'][df['instruction']=='left']['dff'].mean()
 
-            # calculate peak amp and frame for peak amp and half rise
-            base_ids = range(0, 6)
-            dff_m = np.array([dff_m_r[6:], dff_m_l[6:]])
-            dff_mean = np.mean(dff_m, axis=1)
-            idx = np.abs(dff_mean).argmax()
-            trace = dff_m[idx] * np.sign(dff_mean[idx])
-            trace[base_ids] = 0
-
-            frame_peak = trace.argmax()
-            peak = trace[frame_peak]
-            frame_rise_half = np.where((trace - peak/2) > 0)[0][0]
+                alpha.append((er-cl+cr-el)/2)
+                beta.append((el-cl+cr-er)/2)
+                gamma.append((cr+cl-er-el)/2)
+                mu.append((cl-cr+er+el)/2)
 
             # populate output structure
             roi_info.append(
                 dict(
                     **roi,
-                    dff_m_l=dff_m_l,
-                    dff_m_r=dff_m_r,
-                    dff_diff= dff_diff,
-                    p_selective=p_selective,
-                    is_selective=is_selective,
-                    dff_int_l=np.nanmean(dff_int_l),
-                    dff_int_r=np.nanmean(dff_int_r),
-                    p_responsive_l=p_responsive_l,
-                    p_responsive_r=p_responsive_r,
-                    is_responsive=is_responsive,
-                    selectivity=selectivity,
-                    mean_amp=peak,
-                    frame_peak=frame_peak,
-                    frame_rise_half=frame_rise_half
+                    panova=panova,
+                    alpha=alpha,
+                    beta=beta,
+                    gamma=gamma,
+                    mu=mu
                 )
             )
 

@@ -239,7 +239,7 @@ class TrialEvent(dj.Imported):
     ---
     -> TrialEventType
     trial_event_time : decimal(8, 4)   # (s) from trial start, not session start
-    duration=null: decimal(8,4)  #  (s)
+    duration=null: decimal(8, 4)  #  (s)
     """
 
 
