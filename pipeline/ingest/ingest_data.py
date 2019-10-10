@@ -28,7 +28,7 @@ def main(data_dir='/data'):
                         'LickEarly': ('non-performing', 'non-performing', 'early')
                         }
 
-    cell_type_mapper = {'p': 'PT', 'i': 'IT', '': 'N/A', 'in': 'interneuron', 'pn': 'Pyr'}
+    cell_type_mapper = {'PT': 'PT', 'IT': 'IT', 'unidentified': 'N/A', 'in': 'interneuron', 'pn': 'Pyr'}
 
     task_protocol = {'task': 'audio delay', 'task_protocol': 1}
 
@@ -154,28 +154,33 @@ def main(data_dir='/data'):
             roi_path = 'processing/ROIs/ROI_{0:03}/'.format(roi_idx)
             roi_trace = nwb[roi_path + 'fmean'][()]
             neuropil_trace = nwb[roi_path + 'fmean_neuropil'][()]
+            roi_trace_corrected = roi_trace - 0.7*neuropil_trace
 
             rois.append(
                 dict(**current_session,
-                    roi_idx=roi_idx,
-                    roi_trace=roi_trace,
-                    neuropil_trace=neuropil_trace,
-                    cell_type=nwb[roi_path + 'cell_type'][()][0],
-                    ap_position=nwb[roi_path + 'AP_position_from_bregma_in_micron'][()][0],
-                    ml_position=nwb[roi_path + 'ML_position_from_bregma_in_micron'][()][0],
-                    roi_pixel_list=nwb[roi_path + 'pixel_list'][()],
-                    inc=bool(np.mean(roi_trace)/np.mean(neuropil_trace)>1.05)))
+                     roi_idx=roi_idx,
+                     roi_trace=roi_trace,
+                     neuropil_trace=neuropil_trace,
+                     roi_trace_corrected=roi_trace_corrected,
+                     cell_type=cell_type_mapper[nwb[roi_path + 'cell_type'][()][0]],
+                     ap_position=nwb[roi_path + 'AP_position_from_bregma_in_micron'][()][0],
+                     ml_position=nwb[roi_path + 'ML_position_from_bregma_in_micron'][()][0],
+                     roi_pixel_list=nwb[roi_path + 'pixel_list'][()],
+                     inc=bool(np.mean(roi_trace)/np.mean(neuropil_trace)>1.05)))
 
             for tr in tr_events.keys():
                 if tr in tr_events:
                     go_cue_time = sum(tr_events[tr])
                     go_id = np.abs(frame_time-go_cue_time).argmin()
+                    idx = slice(go_id-70, go_id+45, 1)
+                    baseline = np.mean(roi_trace_corrected[go_id-70:go_id-64])
                     trial_traces += [
                         dict(**current_session, roi_idx=roi_idx, trial=tr,
-                            original_time=frame_time[go_id-70:go_id+45],
-                            aligned_time=frame_time[go_id-70:go_id+45]-go_cue_time,
-                            aligned_trace=roi_trace[go_id-70:go_id+45],
-                            dff=(roi_trace[go_id-70:go_id+45] - np.mean(roi_trace[go_id-70:go_id-64]))/np.mean(roi_trace[go_id-70:go_id-64]))]
+                             original_time=frame_time[idx],
+                             aligned_time=frame_time[idx]-go_cue_time,
+                             aligned_trace=roi_trace[idx],
+                             aligned_trace_corrected=roi_trace_corrected[idx],
+                             dff=(roi_trace_corrected[idx] - baseline)/baseline)]
 
         imaging.Scan.Roi.insert(rois, **kargs)
         imaging.TrialTrace.insert(trial_traces, **kargs)

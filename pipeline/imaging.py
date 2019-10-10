@@ -49,9 +49,10 @@ class Scan(dj.Imported):
         -> master
         roi_idx:   int
         ---
-        cell_type:          varchar(32)
+        -> CellType
         roi_trace:          longblob        # average fluorescence of roi
         neuropil_trace:     longblob        # average fluorescence of neuopil surounding each ROI
+        roi_trace_corrected:longblob        # average fluorescence of roi substracting neuropil * 0.7
         roi_pixel_list:     longblob        # pixel list of this roi
         ap_position:        float           # in um, relative to bregma
         ml_position:        float           # in um, relative to bregma
@@ -64,10 +65,11 @@ class TrialTrace(dj.Imported):
     -> Scan.Roi
     -> experiment.SessionTrial
     ---
-    original_time:      longblob  # original time cut for this trial
-    aligned_time:       longblob  # 0 is go cue time
-    aligned_trace:      longblob  # aligned trace relative to the go cue time
-    dff:                longblob  # dff, normalized with f[0:6]
+    original_time:              longblob  # original time cut for this trial
+    aligned_time:               longblob  # 0 is go cue time
+    aligned_trace:              longblob  # aligned trace relative to the go cue time
+    aligned_trace_corrected:    longblob  # aligned trace
+    dff:                        longblob  # dff of corrected, normalized with f[0:6]
     """
 
 
