@@ -11,6 +11,8 @@ import h5py
 
 from pipeline import lab, experiment, imaging
 from pipeline import parse_date, time_unit_conversion_factor
+from pipeline.ingest import ingest_lookup
+
 
 
 def main(data_dir='/data'):
@@ -20,12 +22,12 @@ def main(data_dir='/data'):
 
     # ==================== DEFINE CONSTANTS =====================
     trial_type_mapper = {'CorrR': ('hit', 'right', 'no early'),
-                        'CorrL': ('hit', 'left', 'no early'),
-                        'ErrR': ('miss', 'right', 'no early'),
-                        'ErrL': ('miss', 'left', 'no early'),
-                        'NoLickR': ('ignore', 'right', 'no early'),
-                        'NoLickL': ('ignore', 'left', 'no early'),
-                        'LickEarly': ('non-performing', 'non-performing', 'early')
+                         'CorrL': ('hit', 'left', 'no early'),
+                         'ErrR': ('miss', 'right', 'no early'),
+                         'ErrL': ('miss', 'left', 'no early'),
+                         'NoLickR': ('ignore', 'right', 'no early'),
+                         'NoLickL': ('ignore', 'left', 'no early'),
+                         'LickEarly': ('non-performing', 'non-performing', 'early')
                         }
 
     cell_type_mapper = {'PT': 'PT', 'IT': 'IT', 'unidentified': 'N/A', 'in': 'interneuron', 'pn': 'Pyr'}
@@ -191,3 +193,5 @@ if __name__ == '__main__':
         main(sys.argv[1])
     else:
         main()
+
+    imaging.RoiAnalyses.populate(suppress_errors=True, display_progress=True)

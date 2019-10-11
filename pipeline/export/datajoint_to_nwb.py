@@ -34,7 +34,8 @@ def export_to_nwb(session_key, nwb_output_dir=default_nwb_output_dir, save=False
         [this_session['subject_nickname'],
          this_session['session_date'].strftime('%Y-%m-%d'),
          str(this_session['session'])])
-    nwbfile = NWBFile(identifier=file_name,
+    nwbfile = NWBFile(
+        identifier=file_name,
         related_publications='http://dx.doi.org/10.1016/j.neuron.2017.05.005',
         experiment_description='Two-photon experiment recorded in {}'.format(this_session['brain_location_name']),
         session_description='Imaging session',
